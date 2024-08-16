@@ -220,40 +220,36 @@ export class AppointmentsService {
                 available_slots: isOccupied ? 0 : 1
             };
         });
-
-        // return slots;
     }
 
 
 
-transformAppointments(appointments: Appointment[]): any[] {
-    const formatTime = (date: Date): string => date.toISOString().substr(11, 5);
+    transformAppointments(appointments: Appointment[]): any[] {
+        const formatTime = (date: Date): string => date.toISOString().substr(11, 5);
 
-    const groupedByDate: { [key: string]: { time_start: string, time_end: string }[] } = appointments.reduce((acc, appointment) => {
-        const date = appointment.startTime.toISOString().substr(0, 10); // 'YYYY-MM-DD'
-        const timeStart = formatTime(appointment.startTime);
-        const timeEnd = formatTime(appointment.endTime);
+        const groupedByDate: { [key: string]: { time_start: string, time_end: string }[] } = appointments.reduce((acc, appointment) => {
+            const date = appointment.startTime.toISOString().substr(0, 10); // 'YYYY-MM-DD'
+            const timeStart = formatTime(appointment.startTime);
+            const timeEnd = formatTime(appointment.endTime);
 
-        if (!acc[date]) {
-            acc[date] = [];
-        }
+            if (!acc[date]) {
+                acc[date] = [];
+            }
 
-        acc[date].push({ time_start: timeStart, time_end: timeEnd });
+            acc[date].push({ time_start: timeStart, time_end: timeEnd });
 
-        return acc;
-    }, {} as { [key: string]: { time_start: string, time_end: string }[] });
+            return acc;
+        }, {} as { [key: string]: { time_start: string, time_end: string }[] });
 
-    // Removing duplicates
-    const result: any[] = Object.keys(groupedByDate).map(date => ({
-        date: date,
-        occupied: Array.from(new Set(groupedByDate[date].map(slot => JSON.stringify(slot))))
-            .map(slot => JSON.parse(slot))
-    }));
+        // Removing duplicates
+        const result: any[] = Object.keys(groupedByDate).map(date => ({
+            date: date,
+            occupied: Array.from(new Set(groupedByDate[date].map(slot => JSON.stringify(slot))))
+                .map(slot => JSON.parse(slot))
+        }));
 
-    return result;
-}
-
-
+        return result;
+    }
 
     private isValidSlot(startTime: Date, endTime: Date): boolean {
         if (!(startTime instanceof Date) || !(endTime instanceof Date)) {
