@@ -203,13 +203,15 @@ export class AppointmentsService {
 
     calculateAvailableSlots(slots: any[], appointments: any[]): any[] {
         const transformedAppointments = this.transformAppointments(appointments);
+        console.log(JSON.stringify(transformedAppointments, null, 2));
+
         return slots.map(slot => {
             // Find if the slot is occupied
             const isOccupied = transformedAppointments.some(appointment =>
                 appointment.date === slot.date &&
                 appointment.occupied.some(occupiedSlot =>
-                    occupiedSlot.time_start === slot.time &&
-                    occupiedSlot.time_end === slot.time_end
+                    occupiedSlot.time_start <= slot.time &&
+                    occupiedSlot.time_end >= slot.time_end
                 )
             );
 
