@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { Appointment } from './appointment.entity';
@@ -9,6 +9,7 @@ import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 @Injectable()
 export class AppointmentsService {
   private readonly workHours = { start: 9, end: 18 }; // 9AM to 6PM
+  private readonly slotDuration = 30; // 30 minutes
 
   constructor(
     @InjectRepository(Appointment)
@@ -18,21 +19,44 @@ export class AppointmentsService {
   ) {}
 
   async create(createAppointmentDto: CreateAppointmentDto): Promise<Appointment> {
-    const { userId, ...appointmentData } = createAppointmentDto;
+    const { userId, startTime, endTime, ...appointmentData } = createAppointmentDto;
 
     const user = await this.userRepository.findOneBy({ id: userId });
 
     if (!user) {
-      throw new Error('User not found');
+        throw new BadRequestException('User not found');
     }
 
+    // Validate appointment times
+    if (!this.isValidSlot(new Date(startTime), new Date(endTime))) {
+        throw new BadRequestException('Appointment times must align with 30-minute intervals');
+    }
+
+    // Check for overlapping appointments
+    const conflictingAppointment = await this.appointmentRepository.findOne({
+    where: {
+        user: { id: userId },
+        startTime: Between(new Date(startTime), new Date(endTime)),
+        endTime: Between(new Date(startTime), new Date(endTime)),
+    },
+    });
+
+    if (conflictingAppointment) {
+        throw new BadRequestException('Appointment slot is already booked');
+    }
+
+    // Ensure startTime and endTime are included
     const appointment = this.appointmentRepository.create({
-      ...appointmentData,
-      user,
+    ...appointmentData,
+    user,
+    startTime: new Date(startTime),
+    endTime: new Date(endTime),
     });
 
     return await this.appointmentRepository.save(appointment);
-  }
+}
+
+
 
   async findAll(): Promise<Appointment[]> {
     return await this.appointmentRepository.find({ relations: ['user'] });
@@ -45,7 +69,7 @@ export class AppointmentsService {
     });
 
     if (!appointment) {
-      throw new Error('Appointment not found');
+        throw new BadRequestException('Appointment not found');
     }
 
     return appointment;
@@ -60,7 +84,7 @@ export class AppointmentsService {
       const user = await this.userRepository.findOneBy({ id: userId });
 
       if (!user) {
-        throw new Error('User not found');
+        throw new BadRequestException('User not found');
       }
 
       appointment.user = user;
@@ -80,7 +104,7 @@ export class AppointmentsService {
     // Validate user
     const user = await this.userRepository.findOneBy({ id: userId });
     if (!user) {
-      throw new Error('User not found');
+        throw new BadRequestException('User not found');
     }
 
     const startOfDay = new Date(startDate);
@@ -151,30 +175,39 @@ export class AppointmentsService {
     return availableSlots;
   }
 
-transformAppointments(appointments: Appointment[]): any[] {
-    const formatTime = (date: Date): string => date.toISOString().substr(11, 5);
+    transformAppointments(appointments: Appointment[]): any[] {
+        const formatTime = (date: Date): string => date.toISOString().substr(11, 5);
 
-    // Step 1: Group by date
-    const groupedByDate: { [key: string]: string[] } = appointments.reduce((acc, appointment) => {
-      const date = appointment.startTime.toISOString().substr(0, 10); // 'YYYY-MM-DD'
-      const timeSlot = formatTime(appointment.startTime);
+        const groupedByDate: { [key: string]: string[] } = appointments.reduce((acc, appointment) => {
+        const date = appointment.startTime.toISOString().substr(0, 10); // 'YYYY-MM-DD'
+        const timeSlot = formatTime(appointment.startTime);
 
-      if (!acc[date]) {
-        acc[date] = [];
-      }
+        if (!acc[date]) {
+            acc[date] = [];
+        }
 
-      acc[date].push(timeSlot);
+        acc[date].push(timeSlot);
 
-      return acc;
-    }, {} as { [key: string]: string[] });
+        return acc;
+        }, {} as { [key: string]: string[] });
 
-    // Step 2: Format the results
-    const result: any[] = Object.keys(groupedByDate).map(date => ({
-      date: date,
-      occupied: Array.from(new Set(groupedByDate[date])) // Removing duplicates
-    }));
+        const result: any[] = Object.keys(groupedByDate).map(date => ({
+        date: date,
+        occupied: Array.from(new Set(groupedByDate[date])) // Removing duplicates
+        }));
 
-    return result;
-  }
+        return result;
+    }
+
+    private isValidSlot(startTime: Date, endTime: Date): boolean {
+        if (!(startTime instanceof Date) || !(endTime instanceof Date)) {
+            throw new Error('startTime and endTime must be Date objects');
+        }
+
+        const slotDurationMs = this.slotDuration * 60 * 1000;
+        const diff = endTime.getTime() - startTime.getTime();
+
+        return diff === slotDurationMs && startTime.getMinutes() % this.slotDuration === 0;
+    }
 
 }
