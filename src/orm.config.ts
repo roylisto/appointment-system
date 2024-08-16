@@ -12,7 +12,7 @@ const config: TypeOrmModuleOptions = {
   database: process.env.DATABASE_NAME,
   entities: [__dirname + '/**/*.entity.{js,ts}'],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
-  synchronize: false,
+  synchronize: true,
 };
 
 export default config;
