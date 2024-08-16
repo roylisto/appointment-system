@@ -157,8 +157,6 @@ export class AppointmentsService {
       },
     });
 
-    console.log(appointments);
-
     // Generate slots in local timezone and calculate available slots
     const slots = this.generateSlots(startDate, endDate);
     const availableSlots = this.calculateAvailableSlots(slots, appointments);
