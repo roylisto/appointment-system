@@ -7,6 +7,8 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fromZonedTime, toZonedTime } from 'date-fns-tz';
+
 
 @Injectable()
 export class AppointmentsService {
@@ -39,18 +41,32 @@ export class AppointmentsService {
             throw new BadRequestException('User not found');
         }
 
+        const start = new Date(startTime);
+        const end = new Date(endTime);
+
+        // Convert UTC to local time
+        const localStartHours = start.getUTCHours();
+        const localEndHours = end.getUTCHours();
+
+        // Check if the appointment times are within working hours
+        if (localStartHours < this.workHours.start || localStartHours >= this.workHours.end ||
+            localEndHours < this.workHours.start || localEndHours > this.workHours.end ||
+            (localEndHours === this.workHours.end && end.getUTCMinutes() > 0)) {
+            throw new BadRequestException(`Appointment times must be within working hours ${this.workHours.start}:00 to ${this.workHours.end}:00`);
+        }
+
         // Validate appointment times
-        if (!this.isValidSlot(new Date(startTime), new Date(endTime))) {
+        if (!this.isValidSlot(start, end)) {
             throw new BadRequestException(`Appointment times must align with ${this.slotDuration}-minute intervals`);
         }
 
         // Check for overlapping appointments
         const conflictingAppointment = await this.appointmentRepository.findOne({
-        where: {
-            user: { id: userId },
-            startTime: Between(new Date(startTime), new Date(endTime)),
-            endTime: Between(new Date(startTime), new Date(endTime)),
-        },
+            where: {
+                user: { id: userId },
+                startTime: Between(start, end),
+                endTime: Between(start, end),
+            },
         });
 
         if (conflictingAppointment) {
@@ -59,10 +75,10 @@ export class AppointmentsService {
 
         // Ensure startTime and endTime are included
         const appointment = this.appointmentRepository.create({
-        ...appointmentData,
-        user,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
+            ...appointmentData,
+            user,
+            startTime: start,
+            endTime: end,
         });
 
         return await this.appointmentRepository.save(appointment);
@@ -118,12 +134,21 @@ export class AppointmentsService {
         throw new BadRequestException('User not found');
     }
 
-    const startOfDay = new Date(startDate);
-    startOfDay.setHours(0, 0, 0, 0); // Set to 00:00:00
+    // Define time zone
+    const timeZone = 'Asia/Jakarta';
 
-    const endOfDay = new Date(endDate);
-    endOfDay.setHours(23, 59, 59, 999); // Set to 23:59:59.999
+    // Convert local dates to UTC
+    const startOfDayLocal = fromZonedTime(startDate, timeZone);
+    const endOfDayLocal = fromZonedTime(endDate, timeZone);
 
+    // Adjust to start and end of the day in UTC
+    const startOfDay = new Date(startOfDayLocal);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+
+    const endOfDay = new Date(endOfDayLocal);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+
+    // Find appointments in the UTC range
     const appointments = await this.appointmentRepository.find({
       where: {
         user: { id: userId },
@@ -132,11 +157,14 @@ export class AppointmentsService {
       },
     });
 
+    console.log(appointments);
+
+    // Generate slots in local timezone and calculate available slots
     const slots = this.generateSlots(startDate, endDate);
     const availableSlots = this.calculateAvailableSlots(slots, appointments);
 
     return availableSlots;
-  }
+}
 
     private generateSlots(startDate: Date, endDate: Date): any[] {
         const slots = [];
@@ -175,32 +203,30 @@ export class AppointmentsService {
         return slots;
     }
 
-  calculateAvailableSlots(slots: any[], appointments: Appointment[]): any[] {
-    const transformedAppointments = this.transformAppointments(appointments);
+    calculateAvailableSlots(slots: any[], appointments: any[]): any[] {
+        const transformedAppointments = this.transformAppointments(appointments);
+        return slots.map(slot => {
+            // Find if the slot is occupied
+            const isOccupied = transformedAppointments.some(appointment =>
+                appointment.date === slot.date &&
+                appointment.occupied.some(occupiedSlot =>
+                    occupiedSlot.time_start === slot.time &&
+                    occupiedSlot.time_end === slot.time_end
+                )
+            );
 
-    const availableSlots = slots.map(slot => {
-        const { date, time } = slot;
-        const startTime = new Date(`${date}T${time}:00`);
-        const endTime = new Date(startTime.getTime() + this.slotDuration * 60 * 1000); // Adjust based on slot duration
-
-        // Find the occupied slots for the current date
-        const occupiedSlots = transformedAppointments.find(app => app.date === date)?.occupied || [];
-
-        // Check if the current slot's time falls within any occupied slot's range
-        const isOccupied = occupiedSlots.some(occupied => {
-            const occupiedStart = new Date(`${date}T${occupied.time_start}:00`);
-            const occupiedEnd = new Date(`${date}T${occupied.time_end}:00`);
-            return (startTime < occupiedEnd && endTime > occupiedStart); // Check overlap
+            // Return the availability
+            return {
+                date: slot.date,
+                time: slot.time,
+                available_slots: isOccupied ? 0 : 1
+            };
         });
 
-        return {
-            ...slot,
-            available_slots: isOccupied ? 0 : 1, // Set 0 if occupied, 1 if available
-        };
-    });
+        // return slots;
+    }
 
-    return availableSlots;
-}
+
 
 transformAppointments(appointments: Appointment[]): any[] {
     const formatTime = (date: Date): string => date.toISOString().substr(11, 5);
