@@ -77,16 +77,23 @@ export class AppointmentsService {
 
   //
   async getAvailableSlots(userId: number, startDate: Date, endDate: Date): Promise<any[]> {
+    // Validate user
     const user = await this.userRepository.findOneBy({ id: userId });
     if (!user) {
       throw new Error('User not found');
     }
 
+    const startOfDay = new Date(startDate);
+    startOfDay.setHours(0, 0, 0, 0); // Set to 00:00:00
+
+    const endOfDay = new Date(endDate);
+    endOfDay.setHours(23, 59, 59, 999); // Set to 23:59:59.999
+
     const appointments = await this.appointmentRepository.find({
       where: {
         user: { id: userId },
-        startTime: Between(startDate, endDate),
-        endTime: Between(startDate, endDate),
+        startTime: Between(startOfDay, endOfDay),
+        endTime: Between(startOfDay, endOfDay),
       },
     });
 
@@ -100,7 +107,9 @@ export class AppointmentsService {
     const slots = [];
     let currentDate = new Date(startDate);
 
+    // Generate slots for the specific date range
     while (currentDate <= endDate) {
+      // Check if the current date is a weekday
       if (currentDate.getDay() >= 1 && currentDate.getDay() <= 5) { // Weekdays (Monday to Friday)
         for (let hour = this.workHours.start; hour < this.workHours.end; hour++) {
           for (let minute = 0; minute < 60; minute += 30) { // 30-minute slots
@@ -112,29 +121,60 @@ export class AppointmentsService {
           }
         }
       }
+      // Move to the next day
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
     return slots;
   }
 
-  private calculateAvailableSlots(slots: any[], appointments: Appointment[]): any[] {
-    const availableSlots = slots.map(slot => ({ ...slot, available_slots: 1 }));
 
-    appointments.forEach(appointment => {
-      const appointmentStart = new Date(appointment.startTime);
-      const appointmentEnd = new Date(appointment.endTime);
-      const appointmentDate = appointmentStart.toISOString().split('T')[0];
-      const appointmentStartTime = appointmentStart.toTimeString().slice(0, 5);
-      const appointmentEndTime = appointmentEnd.toTimeString().slice(0, 5);
+  calculateAvailableSlots(slots: any[], appointments: Appointment[]): any[] {
+    const transformedAppointments = this.transformAppointments(appointments);
 
-      availableSlots.forEach(slot => {
-        if (slot.date === appointmentDate && slot.time >= appointmentStartTime && slot.time < appointmentEndTime) {
-          slot.available_slots = 0;
-        }
-      });
+    const availableSlots = slots.map(slot => {
+        const { date, time } = slot;
+        const startTime = new Date(`${date}T${time}:00`);
+        const endTime = new Date(startTime.getTime() + 30 * 60 * 1000); // Add 30 minutes
+
+        // Find the occupied slots for the current date
+        const occupiedTimes = transformedAppointments.find(app => app.date === date)?.occupied || [];
+
+        const isOccupied = occupiedTimes.includes(time);
+
+        return {
+        ...slot,
+        available_slots: isOccupied ? 0 : 1, // Set 0 if occupied, 1 if available
+        };
     });
 
     return availableSlots;
   }
+
+transformAppointments(appointments: Appointment[]): any[] {
+    const formatTime = (date: Date): string => date.toISOString().substr(11, 5);
+
+    // Step 1: Group by date
+    const groupedByDate: { [key: string]: string[] } = appointments.reduce((acc, appointment) => {
+      const date = appointment.startTime.toISOString().substr(0, 10); // 'YYYY-MM-DD'
+      const timeSlot = formatTime(appointment.startTime);
+
+      if (!acc[date]) {
+        acc[date] = [];
+      }
+
+      acc[date].push(timeSlot);
+
+      return acc;
+    }, {} as { [key: string]: string[] });
+
+    // Step 2: Format the results
+    const result: any[] = Object.keys(groupedByDate).map(date => ({
+      date: date,
+      occupied: Array.from(new Set(groupedByDate[date])) // Removing duplicates
+    }));
+
+    return result;
+  }
+
 }
