@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Delete, Query, BadRequestException } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -11,6 +11,28 @@ export class AppointmentsController {
   @Post()
   async create(@Body() createAppointmentDto: CreateAppointmentDto): Promise<Appointment> {
     return this.appointmentsService.create(createAppointmentDto);
+  }
+
+  @Get('slots')
+  async getAvailableSlots(
+    @Query('userId') userId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ): Promise<any[]> {
+    // Validate userId
+    const userIdNum = Number(userId);
+    if (isNaN(userIdNum) || userIdNum <= 0) {
+      throw new BadRequestException('Invalid userId parameter');
+    }
+
+    // Validate date parameters
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+      throw new BadRequestException('Invalid startDate or endDate parameter');
+    }
+
+    return this.appointmentsService.getAvailableSlots(userIdNum, start, end);
   }
 
   @Get()
@@ -35,4 +57,6 @@ export class AppointmentsController {
   async remove(@Param('id') id: number): Promise<void> {
     return this.appointmentsService.remove(id);
   }
+
+
 }
