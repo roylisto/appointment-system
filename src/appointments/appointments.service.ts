@@ -44,6 +44,12 @@ export class AppointmentsService {
         const start = new Date(startTime);
         const end = new Date(endTime);
 
+        // Validate if the appointment is on an operational day
+        const dayOfWeek = start.getUTCDay(); // Get day of the week (0=Sunday, 1=Monday, etc.)
+        if (!this.operationalDays.includes(dayOfWeek)) {
+            throw new BadRequestException('Appointment day is outside of operational days');
+        }
+
         // Convert UTC to local time
         const localStartHours = start.getUTCHours();
         const localEndHours = end.getUTCHours();
@@ -83,6 +89,7 @@ export class AppointmentsService {
 
         return await this.appointmentRepository.save(appointment);
     }
+
 
 
   async findAll(): Promise<Appointment[]> {
