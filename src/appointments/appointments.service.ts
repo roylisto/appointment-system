@@ -44,6 +44,12 @@ export class AppointmentsService {
         const start = new Date(startTime);
         const end = new Date(endTime);
 
+        // Validate if the appointment is on an operational day
+        const dayOfWeek = start.getUTCDay(); // Get day of the week (0=Sunday, 1=Monday, etc.)
+        if (!this.operationalDays.includes(dayOfWeek)) {
+            throw new BadRequestException('Appointment day is outside of operational days');
+        }
+
         // Convert UTC to local time
         const localStartHours = start.getUTCHours();
         const localEndHours = end.getUTCHours();
@@ -60,8 +66,8 @@ export class AppointmentsService {
             throw new BadRequestException(`Appointment times must align with ${this.slotDuration}-minute intervals`);
         }
 
-        // Check for overlapping appointments
-        const conflictingAppointment = await this.appointmentRepository.findOne({
+        // Check for overlapping appointments and count existing appointments within the same time range
+        const existingAppointments = await this.appointmentRepository.find({
             where: {
                 user: { id: userId },
                 startTime: Between(start, end),
@@ -69,8 +75,8 @@ export class AppointmentsService {
             },
         });
 
-        if (conflictingAppointment) {
-            throw new BadRequestException('Appointment slot is already booked');
+        if (existingAppointments.length >= this.maxSlotsPerAppointment) {
+            throw new BadRequestException(`User can only have a maximum of ${this.maxSlotsPerAppointment} appointment(s) in the same time slot`);
         }
 
         // Ensure startTime and endTime are included
